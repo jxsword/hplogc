@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }} / ${{ matrix.ring }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        ring: [locked, lockfree]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          ${{ matrix.ring == 'lockfree' && '-DHPLOGC_LOCKFREE=ON' || '' }}
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  sanitizer:
+    name: sanitizer / ${{ matrix.ring }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ring: [locked, lockfree]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (ASan + UBSan)
+        run: >
+          cmake -S . -B build-asan
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          ${{ matrix.ring == 'lockfree' && '-DHPLOGC_LOCKFREE=ON' || '' }}
+
+      - name: Build
+        run: cmake --build build-asan --config Debug -j
+
+      - name: Test
+        run: ctest --test-dir build-asan --output-on-failure
