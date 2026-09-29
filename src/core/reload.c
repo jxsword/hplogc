@@ -20,29 +20,41 @@ static uint64_t g_last_mtime;
 /** @brief 执行一次热加载（解析 + 装配 + 原子替换）。 */
 int hp_reload_do(void)
 {
-    hp_ini_t  ini;
-    hp_config_t c;
-    int       rc;
+    hp_ini_t ini;
+    /* 配置结构在**堆**上：hp_config_t 约 400 KB，而本函数运行在热加载监视
+       线程上（macOS 非主线程默认栈 512 KB、Windows 默认 1 MB），栈上放置
+       会与小线程栈相冲突（与 route.c 的分组缓冲同一类问题）。 */
+    hp_config_t* c;
+    int          rc;
 
     if (!g_rt.has_config_path) {
         return HPLOGC_ERR_CONFIG;
     }
+    c = (hp_config_t*)malloc(sizeof(*c));
+    if (c == NULL) {
+        hp_warn_throttled("hplogc: 热加载内存不足，旧配置保持（整体回滚）");
+        return HPLOGC_ERR_NO_MEM;
+    }
     rc = hp_ini_parse(g_rt.config_path, &ini);
     if (rc != HPLOGC_OK) {
         hp_warn_throttled("hplogc: 热加载解析失败，旧配置保持（整体回滚）");
+        free(c);
         return rc;
     }
-    rc = hp_conf_build(&ini, g_rt.config_path, &c);
+    rc = hp_conf_build(&ini, g_rt.config_path, c);
     hp_ini_free(&ini);
     if (rc != HPLOGC_OK) {
         hp_warn_throttled("hplogc: 热加载装配失败，旧配置保持（整体回滚）");
+        free(c);
         return rc;
     }
-    rc = hp_runtime_reload_apply(&c);
+    rc = hp_runtime_reload_apply(c);
     if (rc != HPLOGC_OK) {
         hp_warn_throttled("hplogc: 热加载运行时装配失败，旧配置保持（整体回滚）");
+        free(c);
         return rc;
     }
+    free(c);
     hp_warn_throttled("hplogc: 热加载成功，配置已切换");
     return HPLOGC_OK;
 }

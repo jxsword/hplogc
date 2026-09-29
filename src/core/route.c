@@ -8,6 +8,9 @@
 
 #include <stdio.h>
 
+#include <stdlib.h>
+#include <string.h>
+
 #include <hplogc.h>
 
 /** @brief 单批最多参与攒批的事件数（等于 batch_size 上限）。 */
@@ -307,12 +310,19 @@ hplogc_sink_t* hp_sink_by_index(const hp_runtime_t* rt, int idx)
     return rt->sinks[idx];
 }
 
-/** @brief 单个 sink 的攒批组。 */
+/**
+ * @brief 单个 sink 的攒批组。
+ *
+ * 事件指针与下标**不内联**：`HP_DISPATCH_MAX`（4096）的内联数组会让
+ * `HPLOGC_MAX_SINKS`（16）个组占去约 1 MB **栈**空间，而 macOS 非主线程默认栈
+ * 仅 512 KB、Windows 默认线程栈 1 MB——在异步消费者线程上必然越界。
+ * 故改为指向按实际批量 `n` 分配的堆缓冲切片（见 `hp_dispatch_emit`）。
+ */
 typedef struct {
-    int                    sink;                 /*!< sink 索引 */
-    const hplogc_event_t*  evs[HP_DISPATCH_MAX]; /*!< 事件指针 */
-    size_t                 idxs[HP_DISPATCH_MAX];/*!< 对应 items 下标 */
-    size_t                 cnt;                  /*!< 组内条数 */
+    int                    sink; /*!< sink 索引 */
+    const hplogc_event_t** evs;  /*!< 事件指针（堆缓冲切片，容量 n） */
+    size_t*                idxs; /*!< 对应 items 下标（堆缓冲切片，容量 n） */
+    size_t                 cnt;  /*!< 组内条数 */
 } hp_group_t;
 
 /**
@@ -326,6 +336,8 @@ static void hp_dispatch_emit(hp_dispatch_t* items, size_t n)
     size_t i;
     int g;
     unsigned char ok[HP_DISPATCH_MAX];
+    const hplogc_event_t** ev_pool = NULL; /*!< 事件指针池（堆） */
+    size_t* idx_pool = NULL;               /*!< items 下标池（堆） */
 
     if (rt == NULL || items == NULL || n == 0) {
         return;
@@ -333,7 +345,28 @@ static void hp_dispatch_emit(hp_dispatch_t* items, size_t n)
     if (n > HP_DISPATCH_MAX) {
         n = HP_DISPATCH_MAX;
     }
+    /* 分组缓冲按实际批量 n 从堆分配：避免 ~1 MB 栈帧在非主线程上越界
+       （macOS 非主线程 512 KB、Windows 默认 1 MB）。 */
+    ev_pool = (const hplogc_event_t**)calloc(HPLOGC_MAX_SINKS * n,
+                                            sizeof(*ev_pool));
+    idx_pool = (size_t*)calloc(HPLOGC_MAX_SINKS * n, sizeof(*idx_pool));
+    if (ev_pool == NULL || idx_pool == NULL) {
+        /* 分配失败：不写日志，按 §12.4 把本批计入 dropped（绝不崩溃） */
+        free(ev_pool);
+        free(idx_pool);
+        for (i = 0; i < n; i++) {
+            if (items[i].sink_count > 0) {
+                hp_atomic_fetch_add_u64(&g_rt.dropped, 1ull);
+            }
+        }
+        return;
+    }
     memset(groups, 0, sizeof(groups));
+    for (g = 0; g < HPLOGC_MAX_SINKS; g++) {
+        groups[g].sink = -1;
+        groups[g].evs = ev_pool + (size_t)g * n;
+        groups[g].idxs = idx_pool + (size_t)g * n;
+    }
     memset(ok, 0, n);
 
     /* 分组：保持每个 sink 内部的原始顺序（§4.10.4） */
@@ -415,6 +448,8 @@ static void hp_dispatch_emit(hp_dispatch_t* items, size_t n)
             hp_atomic_fetch_add_u64(&g_rt.dropped, 1ull);
         }
     }
+    free(ev_pool);
+    free(idx_pool);
 }
 
 /* ============================ 对外（内部）入口 ============================ */
