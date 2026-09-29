@@ -179,8 +179,14 @@ int hp_file_stat(const char* path, uint64_t* size, uint64_t* mtime_ns)
         *size = (uint64_t)st.st_size;
     }
     if (mtime_ns != NULL) {
+#if defined(__APPLE__)
+        /* macOS 的 struct stat 使用 st_mtimespec（无 POSIX.1-2008 的 st_mtim） */
+        *mtime_ns = (uint64_t)st.st_mtimespec.tv_sec * 1000000000ull
+                    + (uint64_t)st.st_mtimespec.tv_nsec;
+#else
         *mtime_ns = (uint64_t)st.st_mtim.tv_sec * 1000000000ull
                     + (uint64_t)st.st_mtim.tv_nsec;
+#endif
     }
     return HPLOGC_OK;
 }

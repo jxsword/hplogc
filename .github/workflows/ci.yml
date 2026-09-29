@@ -42,7 +42,7 @@ jobs:
   # 与 MSVC 互为补充，覆盖两套编译器对平台层的差异（§11）
   # ---------------------------------------------------------------------------
   windows-mingw:
-    name: windows-mingw / ${{ matrix.ring }}
+    name: windows-mingw ${{ matrix.msystem }} / ${{ matrix.ring }}
     runs-on: windows-latest
     defaults:
       run:
@@ -50,18 +50,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 32 位（MINGW32 / i686）与 64 位（MINGW64 / x86_64）两套工具链都装、都测
+        msystem: [MINGW32, MINGW64]
         ring: [locked, lockfree]
     steps:
       - uses: actions/checkout@v4
 
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
-          update: true
+          msystem: ${{ matrix.msystem }}
+          update: false
           install: >-
-            mingw-w64-x86_64-gcc
+            mingw-w64-i686-toolchain
+            mingw-w64-i686-make
+            mingw-w64-i686-cmake
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-make
             mingw-w64-x86_64-cmake
-            make
 
       - name: Configure
         run: >

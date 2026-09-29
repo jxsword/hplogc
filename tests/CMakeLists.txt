@@ -28,6 +28,15 @@ if("socket" IN_LIST HPLOGC_SINKS)
   target_compile_definitions(test_socket PRIVATE HPLOGC_SINK_HAS_SOCKET=1)
 endif()
 
+# 测试源码直接包含 src/atomic/hplogc_atomic.h，因此必须与库使用**同一个**原子后端宏：
+# 该宏对库目标是 PRIVATE，而 MSVC 没有自动探测兜底（无 __GNUC__/__clang__ 且非 C11 atomics），
+# 缺失会触发 hplogc_atomic.h 的 #error。此处逐个测试目标补充（不改为 PUBLIC，
+# 以免把内部宏导出到安装目标）。
+foreach(_t test_ring test_config test_smoke test_socket)
+  target_compile_definitions(${_t} PRIVATE
+      "HPLOGC_ATOMIC_BACKEND_${HPLOGC_ATOMIC_BACKEND_RESOLVED}=1")
+endforeach()
+
 enable_testing()
 add_test(NAME test_ring COMMAND test_ring)
 add_test(NAME test_config COMMAND test_config)
