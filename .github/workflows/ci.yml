@@ -7,14 +7,22 @@ on:
     branches: [main]
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 主矩阵：Linux / macOS / Windows(MSVC) × 有锁 / 无锁 ring
+  # ---------------------------------------------------------------------------
   build-test:
-    name: ${{ matrix.os }} / ${{ matrix.ring }}
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        ring: [locked, lockfree]
+        include:
+          - { name: 'ubuntu / locked',          os: ubuntu-latest,   ring: locked }
+          - { name: 'ubuntu / lockfree',        os: ubuntu-latest,   ring: lockfree }
+          - { name: 'macos / locked',           os: macos-latest,    ring: locked }
+          - { name: 'macos / lockfree',         os: macos-latest,    ring: lockfree }
+          - { name: 'windows-msvc / locked',    os: windows-latest,  ring: locked }
+          - { name: 'windows-msvc / lockfree',  os: windows-latest,  ring: lockfree }
     steps:
       - uses: actions/checkout@v4
 
@@ -24,11 +32,51 @@ jobs:
           ${{ matrix.ring == 'lockfree' && '-DHPLOGC_LOCKFREE=ON' || '' }}
 
       - name: Build
-        run: cmake --build build --config Release -j
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # Windows 第二工具链：MinGW-w64（GCC），由 MSYS2 提供
+  # 与 MSVC 互为补充，覆盖两套编译器对平台层的差异（§11）
+  # ---------------------------------------------------------------------------
+  windows-mingw:
+    name: windows-mingw / ${{ matrix.ring }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        ring: [locked, lockfree]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            make
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+          ${{ matrix.ring == 'lockfree' && '-DHPLOGC_LOCKFREE=ON' || '' }}
+
+      - name: Build
+        run: cmake --build build --parallel
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  # ---------------------------------------------------------------------------
+  # Sanitizer：ASan + UBSan（仅 Linux；MSVC 不支持，MinGW 支持有限）
+  # ---------------------------------------------------------------------------
   sanitizer:
     name: sanitizer / ${{ matrix.ring }}
     runs-on: ubuntu-latest
@@ -47,7 +95,7 @@ jobs:
           ${{ matrix.ring == 'lockfree' && '-DHPLOGC_LOCKFREE=ON' || '' }}
 
       - name: Build
-        run: cmake --build build-asan --config Debug -j
+        run: cmake --build build-asan --config Debug --parallel
 
       - name: Test
         run: ctest --test-dir build-asan --output-on-failure
