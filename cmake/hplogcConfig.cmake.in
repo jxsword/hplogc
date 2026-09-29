@@ -1,5 +1,13 @@
 @PACKAGE_INIT@
 
+include(CMakeFindDependencyMacro)
+
+# hplogc 以 PUBLIC 链接 Threads::Threads（POSIX 下消费者需要 -lpthread）。
+# 导出的 hplogcTargets.cmake 会引用该**导入目标**，若消费端未解析它，
+# 链接器会把它当作字面量库名（`-lThreads::Threads`）而失败。
+# 因此必须在 include 目标文件之前解析该依赖。
+find_dependency(Threads)
+
 include("${CMAKE_CURRENT_LIST_DIR}/hplogcTargets.cmake")
 
 check_required_components(hplogc)
