@@ -38,10 +38,26 @@
 
 | 平台 / 工具链 | 验证方式 | 结果 |
 |---------------|----------|------|
-| Linux（GCC，locked / lockfree） | 本地构建 + ctest | 通过 |
-| Linux（ASan + UBSan） | 本地构建 + ctest | 通过 |
-| **Windows（MinGW-w64 交叉）** | `x86_64-w64-mingw32-gcc` 交叉构建 | 通过（有锁 / 无锁 / 含 socket 均产出 `libhplogc.a`） |
-| macOS（darwin） | 源码已补齐（kqueue watcher + posix 复用），**由 CI `macos-latest` 实机验证** | 待 CI 回执 |
+| Linux（GCC，locked / lockfree） | 本地构建 + ctest | ✅ 通过 |
+| Linux（ASan + UBSan） | 本地构建 + ctest | ✅ 通过 |
+| **macOS（Apple silicon）** | GitHub Actions `macos-latest` 实机 | ✅ locked / lockfree 均通过 |
+| **Windows（MSVC）** | GitHub Actions `windows-latest` 实机 | ✅ locked / lockfree 均通过 |
+| **Windows（MinGW-w64 32 位 / 64 位）** | GitHub Actions + MSYS2（`MINGW32` + `MINGW64` 各跑 locked / lockfree） | ✅ 4 项全通过 |
+| Windows（MinGW 交叉预检） | 本地 `i686-w64-mingw32-gcc` / `x86_64-w64-mingw32-gcc` | ✅ 通过 |
+
+**GitHub Actions 全矩阵：13 / 13 job 全绿**（ubuntu ×2、macos ×2、windows-msvc ×2、
+windows-mingw MINGW32 ×2 + MINGW64 ×2、sanitizer ×2、coverage ×1）。
+
+### 转绿过程中修复的四个真实缺陷
+
+| # | 缺陷 | 表现 | 修复 |
+|---|------|------|------|
+| 1 | `posix/plat_file.c` 使用 POSIX.1-2008 的 `st_mtim` | macOS 编译失败（`no member named 'st_mtim'`） | `__APPLE__` 分支改用 `st_mtimespec` |
+| 2 | 原子后端宏对库是 `PRIVATE`，测试目标拿不到 | MSVC 编译失败（`#error 未选择原子后端`） | 在 `tests/CMakeLists.txt` 为四个测试目标补 `PRIVATE` 定义 |
+| 3 | `hp_dispatch_emit` 栈帧约 **1.05 MB**（16 组 × 4096 内联数组） | macOS Bus error / Windows SegFault（Linux 线程栈 8 MB 侥幸不崩） | 分组缓冲改为按实际批量 `n` 的堆切片，栈帧降至 **4.7 KB**；`hp_reload_do` 的 400 KB 配置结构同样改为堆分配 |
+| 4 | `g_rt.reload_mu` / `reload_cv` **从未初始化** | Windows 热加载监视线程在 `EnterCriticalSection` 内 SIGSEGV（POSIX 全零锁恰可用故不报错） | 在 `hp_rt_init_once` 补 `hp_mutex_init` / `hp_cond_init` |
+
+另：测试原硬编码 `/tmp`（Windows 无此路径），改为 `test_tmpdir()` 按 `TMPDIR`/`TEMP`/`TMP` 回退。
 
 ## 4. CI 矩阵
 
