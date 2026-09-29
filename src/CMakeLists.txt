@@ -11,7 +11,8 @@ set(HPLOGC_PLATFORM_POSIX_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_thread.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_time.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_file.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_signal.c")
+    "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_signal.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_socket.c")
 
 # 轮询式监视器只依赖 hp_file_stat，与平台无关：所有平台均编译，
 # 作为原生监视机制不可用时的统一回退（契约见 hplogc_platform.h）。
@@ -35,7 +36,8 @@ else()
       "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_time.c"
       "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_file.c"
       "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_signal.c"
-      "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_watcher.c")
+      "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_watcher.c"
+      "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_socket.c")
 endif()
 
 # ---- 环形缓冲：二选一编译（§3.3） ----
@@ -67,7 +69,8 @@ set(HPLOGC_SINK_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_null.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_console.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_rollingfile.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_syslog.c")
+    "${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_syslog.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_socket.c")
 
 add_library(hplogc
             ${HPLOGC_CORE_SRCS}
@@ -167,6 +170,9 @@ if(NOT WIN32)
   find_package(Threads REQUIRED)
   target_link_libraries(hplogc PUBLIC Threads::Threads)
   target_link_libraries(hplogc PRIVATE m)
+else()
+  # Winsock2：socket sink（§4.7.3）所需，Windows 系统库，非第三方依赖
+  target_link_libraries(hplogc PRIVATE ws2_32)
 endif()
 
 # ---- 安装 ----

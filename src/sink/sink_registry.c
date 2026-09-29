@@ -106,6 +106,9 @@ void hp_sink_register_builtins(void)
 #ifdef HPLOGC_SINK_HAS_SYSLOG
     hp_sink_register_ops(&hp_sink_syslog_ops);
 #endif
+#ifdef HPLOGC_SINK_HAS_SOCKET
+    hp_sink_register_ops(&hp_sink_socket_ops);
+#endif
     g_reg_ready = 1;
 }
 

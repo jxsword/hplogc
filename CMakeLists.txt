@@ -164,7 +164,7 @@ endif()
 message(STATUS "hplogc: 可用溢出策略 = ${HPLOGC_OVERFLOW_SUPPORT}")
 
 # ---- sink 列表校验（§4.8 / §11） ----
-set(HPLOGC_SINK_KNOWN_TYPES console rollingfile syslog null)
+set(HPLOGC_SINK_KNOWN_TYPES console rollingfile syslog null socket)
 set(HPLOGC_SINK_FLAGS "")
 foreach(_t IN LISTS HPLOGC_SINKS)
   if(NOT _t IN_LIST HPLOGC_SINK_KNOWN_TYPES)

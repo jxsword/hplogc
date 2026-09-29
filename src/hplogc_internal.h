@@ -552,6 +552,8 @@ extern const hplogc_sink_ops_t hp_sink_rollingfile_ops;
 extern const hplogc_sink_ops_t hp_sink_null_ops;
 /** @brief syslog sink 的操作表。 */
 extern const hplogc_sink_ops_t hp_sink_syslog_ops;
+/** @brief socket sink 的操作表（§4.7.3，零第三方依赖的 UDP / TCP 输出）。 */
+extern const hplogc_sink_ops_t hp_sink_socket_ops;
 
 /** @brief 按索引取 sink 实例（内部）。 */
 struct hplogc_sink* hp_sink_by_index(const hp_runtime_t* rt, int idx);

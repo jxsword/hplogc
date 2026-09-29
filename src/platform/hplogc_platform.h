@@ -346,6 +346,48 @@ void hp_watcher_destroy(hp_watcher_t* w);
  */
 hp_watcher_t* hp_watcher_poll_create(const char* path);
 
+/* ---- 网络 socket（§4.7.3：零第三方依赖的 UDP / TCP 输出） ---- */
+
+/** @brief socket 句柄（不透明指针）。 */
+typedef struct hp_socket hp_socket_t;
+
+/** @brief 协议取值：`hp_socket_open` 的 @p proto 参数。 */
+#define HP_SOCKET_UDP 0 /*!< UDP：无连接、best-effort */
+#define HP_SOCKET_TCP 1 /*!< TCP：面向连接，失败后可重连 */
+
+/**
+ * @brief 打开一个网络 socket（**不得无限阻塞**）。
+ *
+ * @param host       目标主机（IP 字面量或域名，UTF-8）。
+ * @param port       目标端口（主机字节序）。
+ * @param proto      `HP_SOCKET_UDP` 或 `HP_SOCKET_TCP`。
+ * @param timeout_ms TCP 连接超时（毫秒）；UDP 解析地址时的上限。
+ *                   超时即失败返回，**绝不无限等待**。
+ * @return           句柄；失败返回 NULL。
+ *
+ * @note Windows 侧需要 `WSAStartup`：由本接口内部完成（幂等），调用方不感知。
+ */
+hp_socket_t* hp_socket_open(const char* host, unsigned short port, int proto,
+                            unsigned timeout_ms);
+
+/**
+ * @brief 尽力发送一段数据。
+ *
+ * UDP 为 best-effort（不保证送达、不重传）；TCP 失败返回负值，由调用方按需重连。
+ * 本调用**不保证**一次写完全部字节，但不会无限阻塞。
+ *
+ * @return 0 成功；负值 `hplogc_error_t`（通常为 `HPLOGC_ERR_IO`）。
+ */
+int hp_socket_send(hp_socket_t* s, const void* buf, size_t len);
+
+/**
+ * @brief 关闭并释放句柄；@p s 为 NULL 时安全返回。
+ *
+ * @warning 调用后句柄即被释放，**不得再次使用**（包括再次传入本函数——
+ *          这与"对 NULL 幂等"不冲突：重复关闭需由调用方避免）。
+ */
+void hp_socket_close(hp_socket_t* s);
+
 /* ---- 进程 / 线程标识 ---- */
 
 /**
