@@ -749,12 +749,14 @@ int hp_conf_build(const hp_ini_t* ini, const char* path, hp_config_t* out)
         case SEC_GLOBAL:
         case SEC_BUFFER:
         case SEC_ADVANCED:
-#ifndef HPLOGC_HAS_ASYNC
+        /* SEC_ASYNC / SEC_THROTTLE 与其它节一样**无条件解析**：
+           此前此处用的是 #ifndef（极性相反），导致开启异步（默认）时
+           [async] 的 batch size / flush interval / shutdown timeout 反而落到
+           default 分支被静默忽略，运行时只能用编译期默认值。
+           始终解析可以让同一份配置文件在不同裁剪构建间保持可移植；
+           对应特性未编译时，解析出的值只是不被运行期使用。 */
         case SEC_ASYNC:
-#endif
-#ifndef HPLOGC_HAS_THROTTLE
         case SEC_THROTTLE:
-#endif
         {
             int r = hp_apply_kv(out, it->section, k, v);
             if (r == -1) {

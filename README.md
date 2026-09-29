@@ -449,7 +449,7 @@ signal safe = false
 | `[async]` | `batch size` | 1~65535 | `64` |
 | `[async]` | `flush interval` | 毫秒，1~60000 | `100` |
 | `[async]` | `shutdown timeout` | 毫秒，0=一直等待 | `5000` |
-| `[throttle]` | `global rate limit` / `per category rate limit` / `sampling rate` / `burst size` | — | `0` / `0` / `1.0` / `100` |
+| `[throttle]` | `global rate limit` / `per category rate limit` / `sampling rate` / `burst size` | — | `0` / `0` / `1.0` / `100`（仅在 `HPLOGC_ENABLE_THROTTLE=ON` 时有运行时效果，默认 OFF） |
 
 `batch size` 属于 `[async]`，**不是** `[buffer]`。
 
@@ -683,7 +683,7 @@ cmake/                    find_package 包配置模板
 
 1. **配置节顺序强制**：节必须按 `[build]`→`[global]`→`[formats]`→`[outputs]`→`[buffer]`→`[async]`→`[throttle]`→`[rules]`→`[advanced]` 递增出现。
 2. **`[rules]` 不带级别后缀只匹配 TRACE**，请写成 `app.*` / `app.*.*`。
-3. **`[async]` 节的键在默认构建下不生效**：`batch size` / `flush interval` / `shutdown timeout` 的解析分支受构建开关极性影响（默认 `HPLOGC_ENABLE_ASYNC=ON` 时被跳过），实际使用编译期默认值 `64 / 100 / 5000`。
+3. ~~`[async]` 节的键在默认构建下不生效~~ **已修复**（原为配置解析分支的 `#ifndef` 极性错误，导致开启异步时 `[async]` 的 `batch size` / `flush interval` / `shutdown timeout` 被静默忽略、只能用编译期默认值）。`[throttle]` 的键始终可解析，但**限流仅在 `HPLOGC_ENABLE_THROTTLE=ON` 时才有运行时效果**（默认 OFF）。
 4. **Windows 差异**：无 POSIX 信号与 fork（`signal reload` / `fork behavior` 不生效）；`file perms` / `dir perms` / `symlink latest` 被忽略并告警；`syslog` 不可注册。
 5. **`socket` 与 `syslog` 默认不注册**，需显式加入 `HPLOGC_SINKS`。
 6. **`level` 不是 sink 键**，写在 `[outputs]` 里会被当作私有键。
