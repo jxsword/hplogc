@@ -389,6 +389,12 @@ static void hp_rt_init_once(void)
     hp_mutex_init(&g_rt.cat_mu);
     hp_cond_init(&g_rt.consumer_cv);
     hp_mutex_init(&g_rt.consumer_mu);
+    /* 热加载线程的锁与条件变量：此前遗漏初始化——POSIX 下全零的
+       pthread_mutex_t/cond_t 恰可当作普通锁使用，故 Linux/macOS 不报错；
+       而 Windows 的零值 CRITICAL_SECTION 并非有效对象，监视线程一加锁即
+       SIGSEGV（必须由 hp_mutex_init/hp_cond_init 显式初始化）。 */
+    hp_mutex_init(&g_rt.reload_mu);
+    hp_cond_init(&g_rt.reload_cv);
     hp_atomic_init_i32(&g_rt.consumer_stop, 0);
     hp_atomic_init_i32(&g_rt.reload_stop, 0);
     hp_atomic_init_i32(&g_rt.reload_signal, 0);
