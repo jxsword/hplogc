@@ -247,6 +247,7 @@ HPLOGC_LEVEL_TRACE(0) < HPLOGC_LEVEL_DEBUG(1) < HPLOGC_LEVEL_INFO(2) < HPLOGC_LE
 | `console` | — | stdout/stderr 输出；ANSI 彩色（仅终端设备，`HPLOGC_ENABLE_COLOR`） | `SYNC \| ASYNC` | 无 | 不可裁剪（默认配置的兜底 sink） |
 | `rollingfile` | `file` | 文件写入，含轮转（size/time/both）、备份数、命名模板、`.latest` 软链、fsync | `SYNC \| ASYNC \| LINE_ATOMIC \| FSYNC` | 无 | 轮转受 `HPLOGC_ENABLE_ROTATE` 裁剪；sink 本体不可裁剪 |
 | `syslog` | — | POSIX `openlog`/`syslog` 直通 | `SYNC` | libc syslog | `HPLOGC_SINKS` 未含该类型即为排除（P2） |
+| `socket` | — | UDP / TCP 网络输出；**零第三方依赖**，仅使用平台 socket API（POSIX BSD sockets / Windows Winsock2） | `SYNC \| ASYNC` | 平台 socket API | `HPLOGC_SINKS` 未含该类型即为排除（默认不含，见 §4.7.3） |
 | `null` | — | 丢弃一切（测试/基线；也是"审计/指标下线"的路由落点，§7.3） | `SYNC \| ASYNC` | 无 | **默认注册**；`min` 预设排除（§5） |
 
 - `file` 是 `rollingfile` 的**配置别名**：它仅把 `rotate` 的**默认值**设为 `none`，其余键与 `rollingfile` 完全一致；显式书写 `rotate=size|time|both` 时以显式值为准（别名与显式 `rotate` 可共存，不视为冲突）。保留该别名以保证 v0.1 配置文件可直接迁移。
@@ -270,14 +271,44 @@ HPLOGC_LEVEL_TRACE(0) < HPLOGC_LEVEL_DEBUG(1) < HPLOGC_LEVEL_INFO(2) < HPLOGC_LE
 | rollingfile | `file perms` | 文件权限（八进制） | 0644 | Windows 忽略并输出警告 |
 | rollingfile | `dir perms` | 目录权限（八进制） | 0755 | Windows 忽略并输出警告 |
 | syslog | `facility` | syslog facility | `user` | Windows 上该类型不可注册 |
+| socket | `host` | 目标主机（IP 字面量或域名） | 必填 | — |
+| socket | `port` | 目标端口（1 ~ 65535） | 必填 | — |
+| socket | `protocol` | `udp` / `tcp` | `udp` | — |
+| socket | `connect timeout` | TCP 连接超时（毫秒；0 = 系统默认） | 0 | UDP 无连接，忽略该键 |
+| socket | `reconnect` | TCP 断线后是否按退避重连 | true | UDP 无连接，忽略该键 |
 
 - 上述键即 v0.1 `hplogc_output_t` 的字段集合，`rotate`/`time unit` 的取值集合沿用
   `hplogc_rotate_t` / `hplogc_time_unit_t` 两个枚举（二者保留在公共头，作为 rollingfile 的
   **配置值词表**，不再作为公共结构体字段类型，见 §7.6）。
 - 未识别的键交由 §10.1 的未知键处理流程（`strict init` 决定成败）。
 
-> Socket 输出：**v0.1 的 socket 骨架预留已删除**。需要网络输出时以**自定义 sink** 形态实现
-> （§4.10.5），并在 `[outputs]` 中 `type = <自定义类型>`；未注册的类型一律 fail-fast（§10.4）。
+> Socket 输出：**v0.2 曾删除 v0.1 的 socket 骨架预留，本修订予以恢复**（§4.7.3）。
+> 恢复后的形态是**零第三方依赖的内置 `socket` sink**（UDP / TCP），不再保留"定义即失败"
+> 的骨架语义。需要 kafka / loki / elasticsearch 等**第三方协议客户端**的输出，仍只能以
+> **自定义 sink** 形态实现（§4.10.5），并在 `[outputs]` 中 `type = <自定义类型>`；
+> 未注册的类型一律 fail-fast（§10.4）。
+
+#### 4.7.3 内置 `socket` sink 语义（本修订新增，规范性）
+
+> **修订背景**：v0.2 曾以"零依赖 + 避免半成品"为由删除 socket 骨架。经复核：网络输出是
+> 日志库的高频刚需，而 **UDP / TCP 只需平台原生 socket API**，不引入任何第三方客户端库，
+> 与 §6 的零依赖约束并不冲突。故**恢复为内置 sink**，但严格限制在"无第三方依赖"范围内；
+> §4.10.5 对第三方协议客户端的零依赖裁决**仍然完全有效**。
+
+- **协议范围（规范性）**：仅支持 `udp` 与 `tcp`。任何需要第三方客户端的协议
+  （kafka / loki / elasticsearch / clickhouse / s3 / mysql 等）**仍不得入库**，
+  一律由应用侧以自定义 sink 实现（§4.10.5）。
+- **绝不阻塞调用线程（规范性）**：发送失败只计入该 sink 的 `failed`；仅当该条日志的
+  **全部目标 sink 均失败**时才计入全局 `dropped`（§9 / §12.4）。TCP 连接建立受
+  `connect timeout` 约束，超时即失败返回，**不做无限等待**。
+- **UDP 无连接语义**：`host` / `port` 在 `start` 时解析一次并缓存目标地址；发送为
+  尽力而为（best-effort），不保证送达、不重传。
+- **TCP 重连退避**：连接断开后按 `reconnect` 决定是否重连；重连采用**有上限的指数退避**
+  （初始 100 ms，上限 5 s），不得在热路径上无限重试。
+- **裁剪**：`socket` 不在 `HPLOGC_SINKS` 默认值（`console;rollingfile;null`）中，
+  须显式加入列表才注册；`min` 预设不含该类型（§5）。
+- **平台差异**：Windows 需链接 `ws2_32` 并在首次使用前完成 `WSAStartup`；该初始化由
+  平台层内部完成，核心与 sink 层不感知平台（§15）。
 
 ### 4.8 编译期裁剪体系
 
@@ -430,6 +461,8 @@ create ──► configure* ──► init ──► start ──► ( emit | em
   sink **不得进入 hplogc 仓库**（与 §6 零第三方依赖、§5 min 体积预算冲突）。
   这些目标一律以"仓库外的自定义 sink"形态实现，本文不为其承诺任何内置支持；
   `HPLOGC_SINKS` 列表只允许包含零依赖类型。
+  **唯一例外**：§4.7.3 的内置 `socket` sink 只使用平台原生 socket API
+  （POSIX BSD sockets / Windows Winsock2），不引入第三方客户端，故视为零依赖。
 
 ### 4.11 结构化字段通道（v0.2 新增，规范性）
 
@@ -1685,6 +1718,9 @@ P0/P1 功能项在 Phase 1（Linux）完成；Windows/macOS 专属适配分别�
 
 > 依赖第三方客户端的 sink（kafka / loki / elasticsearch / clickhouse / s3 / mysql 等）**不在本项目的任何优先级内**：
 > 按 §4.10.5 一律由应用侧以自定义 sink 形式实现。
+>
+> **例外（本修订新增）**：仅使用平台原生 socket API 的 UDP / TCP `socket` sink 为**内置类型**
+> （§4.7.3），因其不依赖任何第三方客户端，不受本条限制。
 
 ---
 
@@ -1717,8 +1753,9 @@ Phase 1 实现过程中，由一轮回归 / 多线程压测暴露的 6 处规范
 | G4 | §10.3 / §4.5（配置 `[rules]`） | **路由条目语法**：`[rules]` 段每条路由采用 `格式 -> sink1, sink2` 箭头式书写（等价接受 `=`），左侧为 §4 中的格式名（如 `text` / `json`），右侧为逗号分隔的 sink 实例名列表；取消"格式 = 单 sink"的旧隐性语义，明确支持**一个格式映射到多个 sink**。 |
 | G5 | §10.3（配置节匹配） | **前缀匹配节**：`[formats.<name>]` 与 `[outputs.<name>]` 为**前缀匹配**（非精确匹配节名），以支持多实例格式定义与多 sink 实例配置；`[formats]` / `[outputs]` 精确节名继续作为"默认 / 单实例"写法保留。未知前缀节按 §10.1 未知节流程告警。 |
 | G6 | §7.3 / §11（stats 生命周期） | **`hplogc_get_stats` 生命周期语义**：`init_state != HPLOGC_INITIALIZED`（`hplogc_init` 未成功或已 `hplogc_shutdown`）时，`hplogc_get_stats` 返回 `HPLOGC_ERR_STATE` 且**不写** `*stats`；调用方须在 `hplogc_shutdown()` **之前**读取统计。shutdown 之后读取视为未定义行为（结构体不再有效），不得在 shutdown 后依赖其字段值。 |
+| G7 | §4.7.3（socket sink） | **`socket` sink 语义边界**：仅支持 UDP / TCP 且**零第三方依赖**；发送失败只计入该 sink 的 `failed`（仅当全部目标 sink 均失败才计全局 `dropped`）；TCP 连接受 `connect timeout` 约束、超时即失败返回，重连采用**有上限**的退避（初始 100 ms、上限 5 s）；UDP 为 best-effort、不保证送达、不重传。**任何路径都不得无限阻塞调用线程**。 |
 
-#### 18.1.1 门禁口径（G1-G6 验收准则）
+#### 18.1.1 门禁口径（G1-G7 验收准则）
 
 上述澄清条款的验收以以下门禁为准（纳入 §13 自动化，CI 门禁）：
 
@@ -1727,6 +1764,7 @@ Phase 1 实现过程中，由一轮回归 / 多线程压测暴露的 6 处规范
 - **G3 门禁（无虚假丢弃）**：同等 burst 下，将缓冲调大（如 1 MiB）后 `dropped` **仅**由真实容量满引发；在 `spins` 重试上限内 `dropped` 不得包含"陈旧 tail 误判"导致的丢弃（对比：未加重读逻辑时 `dropped` 显著偏高）。
 - **G4 / G5 门禁（配置解析）**：配置单测覆盖 `rules` 箭头语法与 `formats./outputs.` 前缀节两类写法，断言能正确解析并路由；构造的坏配置（未知格式名、未知 sink 名）按 §10.4 报 `HPLOGC_ERR_CONFIG`。
 - **G6 门禁（stats 语义）**：未 `hplogc_init` 即调用 `hplogc_get_stats` 返回 `HPLOGC_ERR_STATE`；`hplogc_shutdown` 之后读取的 `*stats` 不被库修改（调用方自担未定义行为，但该次读取不得使库崩溃或留下越界写）。
+- **G7 门禁（socket 不阻塞 / 零依赖）**：构造不可达的 UDP 目标与连接超时的 TCP 目标，断言：① 写日志调用在 `connect timeout` 内返回、不挂死；② 失败计入该 sink 的 `failed`，仅当全部目标 sink 均失败才计全局 `dropped`；③ 启用 `socket` 时构建产物**不链接任何第三方客户端库**（Windows 仅新增系统库 `ws2_32`）。
 
 ---
 
@@ -1800,6 +1838,17 @@ Phase 1 实现回归 / 多线程压测暴露的 6 处规范缺口，以最小条
 4. G4（§10.3 / §4.5）：`[rules]` 路由条目采用 `格式 -> sink1, sink2` 箭头语法，明确支持一个格式映射到多个 sink。
 5. G5（§10.3）：`[formats.<name>]` / `[outputs.<name>]` 为前缀匹配节，支持多实例格式 / 多 sink 实例配置。
 6. G6（§7.3 / §11）：`hplogc_get_stats` 在 `init_state != INITIALIZED` 时返回 `HPLOGC_ERR_STATE` 且不写 `*stats`；调用方须在 `hplogc_shutdown()` 前读取统计。
+7. G7（§4.7.3）：`socket` sink 的语义边界——仅 UDP/TCP、零第三方依赖、失败只计该 sink 的 `failed`、TCP 连接超时与重连退避均有上限、任何路径不得无限阻塞调用线程。
+
+### v0.2 socket sink 裁决修订（2026-09-29）—— 恢复零依赖内置 socket 输出
+
+撤销 v0.2"删除 socket 骨架预留"的裁决，改为提供**零第三方依赖的内置 `socket` sink**（UDP / TCP）：
+
+1. §4.7.1 内置 sink 清单新增 `socket` 行（能力位 `SYNC | ASYNC`，依赖平台原生 socket API，默认不注册）。
+2. §4.7.2 新增 socket 配置键：`host` / `port` / `protocol` / `connect timeout` / `reconnect`。
+3. 新增 **§4.7.3 内置 `socket` sink 语义**：协议范围仅 UDP/TCP、绝不阻塞调用线程、UDP best-effort、TCP 有上限退避重连、裁剪与平台差异（Windows `ws2_32` + `WSAStartup`）。
+4. §4.10.5 零依赖裁决与 §17 优先级表补入"唯一例外"说明：kafka / loki / ES 等第三方客户端 sink 仍不入库、仍不在任何优先级内；仅"平台原生 socket API"的 UDP/TCP 视为零依赖。
+5. §18.1 补入 G7 澄清条款与对应门禁口径。
 
 ### v0.2 四次评审修订（2026-09-28）—— 消除第三轮引入的二次矛盾
 
