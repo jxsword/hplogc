@@ -69,9 +69,11 @@ jobs:
             mingw-w64-i686-toolchain
             mingw-w64-i686-make
             mingw-w64-i686-cmake
+            mingw-w64-i686-gdb
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-make
             mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-gdb
 
       - name: Configure
         run: >
@@ -83,6 +85,13 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+      - name: Diagnose crash (MinGW)
+        if: failure()
+        run: |
+          cmake -S . -B build-dbg -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Debug -DHPLOGC_LOCKFREE=${{ matrix.ring == 'lockfree' && 'ON' || 'OFF' }}
+          cmake --build build-dbg --parallel
+          gdb -batch -ex "run" -ex "bt" -ex "info registers" --args ./build-dbg/tests/test_smoke.exe 2>&1 | tail -40 || true
 
   # ---------------------------------------------------------------------------
   # Sanitizer：ASan + UBSan（仅 Linux；MSVC 不支持，MinGW 支持有限）
