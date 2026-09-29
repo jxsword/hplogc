@@ -34,7 +34,8 @@ else()
       "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_thread.c"
       "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_time.c"
       "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_file.c"
-      "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_signal.c")
+      "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_signal.c"
+      "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_watcher.c")
 endif()
 
 # ---- 环形缓冲：二选一编译（§3.3） ----

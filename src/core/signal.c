@@ -6,7 +6,6 @@
 
 #include "hplogc_internal.h"
 
-#include <signal.h>
 #include <stdlib.h>
 
 #include <hplogc.h>
@@ -39,15 +38,14 @@ static void hp_signal_atfork_child(void)
 
 void hp_signal_init(void)
 {
-    struct sigaction sa;
     hp_runtime_t* rt = hp_rt_active();
 
-    memset(&sa, 0, sizeof(sa));
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = hp_sighup_handler;
     if (rt != NULL && rt->cfg.signal_reload) {
-        sigaction(SIGHUP, &sa, NULL);
+        /* 信号安装一律走平台契约（§15）：核心层不得直接调用平台 API。
+           不支持 SIGHUP 的平台（Windows）返回 HPLOGC_ERR_UNSUPPORTED，
+           此时热加载仅依赖 watcher / 轮询两种触发源（§4.5）；
+           返回 1 表示宿主已安装处理器，按契约不覆盖。 */
+        (void)hp_install_sighup(hp_sighup_handler);
     }
     /* atfork 仅注册一次（重复注册无害）；child 回调按当前配置决定行为 */
     hp_atfork_child(hp_signal_atfork_child);
@@ -55,14 +53,9 @@ void hp_signal_init(void)
 
 void hp_signal_fini(void)
 {
-    struct sigaction sa;
     hp_runtime_t* rt = hp_rt_active();
 
     if (rt != NULL && rt->cfg.signal_reload) {
-        memset(&sa, 0, sizeof(sa));
-        sigemptyset(&sa.sa_mask);
-        sa.sa_flags = 0;
-        sa.sa_handler = SIG_DFL;
-        sigaction(SIGHUP, &sa, NULL);
+        hp_uninstall_sighup();
     }
 }
