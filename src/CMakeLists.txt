@@ -3,7 +3,9 @@
 
 set(HPLOGC_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include")
 
-# ---- 平台层：POSIX 共享层 + 平台专属 ----
+# ---- 平台层：按平台选择实现（§3.3） ----
+# POSIX 共享层仅用于 linux / darwin；win32 一律使用专属实现，
+# 否则同名符号会被编译两份（重复定义）。
 set(HPLOGC_PLATFORM_POSIX_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_sync.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_thread.c"
@@ -11,13 +13,21 @@ set(HPLOGC_PLATFORM_POSIX_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_file.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_signal.c")
 
+# 轮询式监视器只依赖 hp_file_stat，与平台无关：所有平台均编译，
+# 作为原生监视机制不可用时的统一回退（契约见 hplogc_platform.h）。
+set(HPLOGC_PLATFORM_COMMON_SRCS
+    "${CMAKE_CURRENT_SOURCE_DIR}/platform/posix/plat_watcher_poll.c")
+
 if(HPLOGC_PLATFORM STREQUAL "linux")
   set(HPLOGC_PLATFORM_SRCS
+      ${HPLOGC_PLATFORM_POSIX_SRCS}
       "${CMAKE_CURRENT_SOURCE_DIR}/platform/linux/plat_watcher.c")
 elseif(HPLOGC_PLATFORM STREQUAL "darwin")
+  # macOS 完整支持 pthread：线程 / TLS 直接复用 POSIX 实现（不新增重复实现），
+  # 仅文件监视使用 darwin 专属的 kqueue 实现。
   set(HPLOGC_PLATFORM_SRCS
-      "${CMAKE_CURRENT_SOURCE_DIR}/platform/darwin/plat_watcher.c"
-      "${CMAKE_CURRENT_SOURCE_DIR}/platform/darwin/plat_thread.c")
+      ${HPLOGC_PLATFORM_POSIX_SRCS}
+      "${CMAKE_CURRENT_SOURCE_DIR}/platform/darwin/plat_watcher.c")
 else()
   set(HPLOGC_PLATFORM_SRCS
       "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/plat_sync.c"
@@ -63,8 +73,8 @@ add_library(hplogc
             ${HPLOGC_CONF_SRCS}
             ${HPLOGC_SINK_SRCS}
             ${HPLOGC_RING_SRCS}
-            ${HPLOGC_PLATFORM_POSIX_SRCS}
-            ${HPLOGC_PLATFORM_SRCS})
+            ${HPLOGC_PLATFORM_SRCS}
+            ${HPLOGC_PLATFORM_COMMON_SRCS})
 
 target_include_directories(hplogc
     PUBLIC  "$<BUILD_INTERFACE:${HPLOGC_INCLUDE_DIR}>"
