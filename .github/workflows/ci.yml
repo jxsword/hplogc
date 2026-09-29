@@ -99,3 +99,48 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build-asan --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # 覆盖率：本迭代**仅生成并归档报告、不设阈值**
+  # （与 rd §18 C7 的"报告项"口径一致：硬门禁 + 报告项）。
+  # 阈值收口留待下一迭代按实际水位决定——本地基线为：
+  # lines 46.5% / functions 62.4% / branches 32.7%（gcovr 8.6，仅单测用例）。
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: coverage report (no threshold)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install gcovr
+        run: pip install gcovr
+
+      - name: Configure (coverage instrumentation)
+        run: >
+          cmake -S . -B build-cov
+          -DCMAKE_BUILD_TYPE=Debug
+          -DHPLOGC_ENABLE_COVERAGE=ON
+
+      - name: Build
+        run: cmake --build build-cov --config Debug --parallel
+
+      - name: Test
+        run: ctest --test-dir build-cov --output-on-failure
+
+      - name: Generate report
+        run: >
+          gcovr --root . build-cov
+          --exclude '.*/tests/.*' --exclude '.*/examples/.*' --exclude '.*/build.*'
+          --html-details build-cov/coverage.html
+          --xml build-cov/coverage.xml
+          --print-summary
+
+      - name: Archive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            build-cov/coverage.html
+            build-cov/coverage.html.*
+            build-cov/coverage.xml
+          if-no-files-found: warn
