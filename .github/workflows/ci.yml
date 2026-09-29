@@ -37,6 +37,11 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Diagnose crash (macOS)
+        if: failure() && runner.os == 'macOS'
+        run: |
+          lldb --batch -o "run" -o "bt all" -o "quit" -- ./build/tests/test_smoke 2>&1 | tail -40 || true
+
   # ---------------------------------------------------------------------------
   # Windows 第二工具链：MinGW-w64（GCC），由 MSYS2 提供
   # 与 MSVC 互为补充，覆盖两套编译器对平台层的差异（§11）

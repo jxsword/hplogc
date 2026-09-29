@@ -12,8 +12,11 @@
 
 static const char* const g_sinks[] = {"f1"};
 
+/** @brief 日志文件路径缓冲（运行时按平台临时目录填充）。 */
+static char g_log_path[512];
+
 static hplogc_kv_t g_opts[] = {
-    {"path", "/tmp/hplogc_smoke.log"},
+    {"path", NULL}, /* 运行时填充为 g_log_path */
     {"rotate", "none"},
 };
 
@@ -33,7 +36,11 @@ int main(void)
     char line[2048];
     int found = 0;
 
-    remove("/tmp/hplogc_smoke.log");
+    /* 临时目录按平台取（Windows 无 /tmp） */
+    snprintf(g_log_path, sizeof(g_log_path), "%s/hplogc_smoke.log",
+             test_tmpdir());
+    g_opts[0].value = g_log_path;
+    remove(g_log_path);
 
     hplogc_config_default(&cfg);
     cfg.sinks = g_sink_cfgs;
@@ -53,7 +60,7 @@ int main(void)
     (void)hplogc_flush();
     hplogc_shutdown();
 
-    f = fopen("/tmp/hplogc_smoke.log", "r");
+    f = fopen(g_log_path, "r");
     CHECK(f != NULL);
     while (f != NULL && fgets(line, sizeof(line), f) != NULL) {
         if (strstr(line, "marker=XYZ") != NULL) {

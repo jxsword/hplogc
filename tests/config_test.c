@@ -24,26 +24,33 @@ static int write_temp_ini(const char* path, const char* text)
 
 int main(void)
 {
-    const char* path = "/tmp/hplogc_cfg_test.ini";
+    char path[512];
+    char logpath[512];
+    char text[1024];
     hp_ini_t ini;
     hp_config_t cfg;
     int rc;
 
-    const char* text =
-        "[global]\n"
-        "level = DEBUG\n"
-        "time format = %Y-%m-%d %H:%M:%S.%f\n"
-        "capture source loc = false\n"
-        "\n"
-        "[formats]\n"
-        "myfmt = %level %msg\n"
-        "\n"
-        "[outputs]\n"
-        "file1 = rollingfile, path=/tmp/hplogc_cfg_test.log, rotate=none, enabled=true\n"
-        "\n"
-        "[rules]\n"
-        "app.*.ERROR = myfmt -> file1\n"
-        "*.* = standard -> file1\n";
+    /* 临时文件路径按平台取（Windows 无 /tmp），不得硬编码 */
+    snprintf(path, sizeof(path), "%s/hplogc_cfg_test.ini", test_tmpdir());
+    snprintf(logpath, sizeof(logpath), "%s/hplogc_cfg_test.log",
+             test_tmpdir());
+    snprintf(text, sizeof(text),
+             "[global]\n"
+             "level = DEBUG\n"
+             "time format = %%Y-%%m-%%d %%H:%%M:%%S.%%f\n"
+             "capture source loc = false\n"
+             "\n"
+             "[formats]\n"
+             "myfmt = %%level %%msg\n"
+             "\n"
+             "[outputs]\n"
+             "file1 = rollingfile, path=%s, rotate=none, enabled=true\n"
+             "\n"
+             "[rules]\n"
+             "app.*.ERROR = myfmt -> file1\n"
+             "*.* = standard -> file1\n",
+             logpath);
 
     if (write_temp_ini(path, text) != 0) {
         CHECK(0);
